@@ -18,10 +18,25 @@ class Chosen extends AbstractChosen
 
   setup: ->
     @form_field_jq = $ @form_field
+    @is_tag = @form_field_jq.attr("type") is "text"
+    @is_multiple = if @is_tag then true else @is_multiple
+    @default_text_default = if @is_tag then "Enter Tags" else @default_text_default
     @is_rtl = @form_field_jq.hasClass "chzn-rtl"
+    @tags = []
+
+    if @is_tag
+      val = @form_field.value
+      @form_field.value = ''
+      if val isnt ''
+        tags = val.split ','
+        for tag in tags
+          @tags.push unescape tag
 
   finish_setup: ->
     @form_field_jq.addClass "chzn-done"
+
+    for tag in @tags
+      @choice_append tag, tag
 
   set_up_html: ->
     @container_id = if @form_field.id.length then @form_field.id.replace(/(:|\.)/g, '_') else this.generate_field_id()
@@ -68,6 +83,11 @@ class Chosen extends AbstractChosen
       sf_width = dd_width - get_side_border_padding(@search_container) - get_side_border_padding(@search_field)
       @search_field.css( {"width" : sf_width + "px"} )
     
+    if @is_tag
+      @container.prepend '<select id="' + @container_id + '_shadow" name="' + @form_field.name + '" style="display: none;" multiple="multiple"></select>'
+      @form_field_jq = ($ '#' + @container_id + '_shadow')
+      @form_field = @form_field_jq.get(0)
+
     this.results_build()
     this.set_tab_index()
 
@@ -166,13 +186,32 @@ class Chosen extends AbstractChosen
   results_build: ->
     startTime = new Date()
     @parsing = true
-    @results_data = root.SelectParser.select_to_array @form_field
 
-    if @is_multiple and @choices > 0
-      @search_choices.find("li.search-choice").remove()
-      @choices = 0
-    else if not @is_multiple
-      @selected_item.find("span").text @default_text
+    if @is_tag and results?
+      hash = {}
+      for opt in @form_field.options
+        hash[opt.value] = true if opt.selected
+      
+      @results_data = []
+      for result, i in results
+        @results_data.push {
+           array_index: i,
+           options_index: i,
+           value: result.value,
+           text: result.text,
+           html: result.text,
+           selected: if (result.value of hash) then 1 else 0,
+           disabled: 0,
+           group_array_index: null
+        }
+    else
+       @results_data = root.SelectParser.select_to_array @form_field
+
+       if @is_multiple and @choices > 0
+         @search_choices.find("li.search-choice").remove()
+         @choices = 0
+       else if not @is_multiple
+         @selected_item.find("span").text @default_text
 
     content = ''
     for data in @results_data
@@ -180,17 +219,23 @@ class Chosen extends AbstractChosen
         content += this.result_add_group data
       else if !data.empty
         content += this.result_add_option data
+        continue if @is_tag and results?
         if data.selected and @is_multiple
           this.choice_build data
         else if data.selected and not @is_multiple
           @selected_item.find("span").text data.text
           @selected_item.find("span").first().after "<abbr class=\"search-choice-close\"></abbr>" if @allow_single_deselect
 
-    this.search_field_disabled()
-    this.show_search_field_default()
-    this.search_field_scale()
+    if @is_tag and results?
+      @search_results.html content
+      this.results_show()
+    else
+      this.search_field_disabled()
+      this.show_search_field_default()
+      this.search_field_scale()
     
-    @search_results.html content
+      @search_results.html content
+
     @parsing = false
 
 
@@ -284,6 +329,44 @@ class Chosen extends AbstractChosen
     if( @active_field and not($(evt.target).hasClass "search-choice" or $(evt.target).parents('.search-choice').first) and not @results_showing )
       this.results_show()
 
+  choice_append: (text, value) ->
+    txt = if text? then text else $.trim(@search_field.val())
+    val = if value? then value else txt
+    return @results_hide() if txt.length < 1 or val.length < 1
+
+    for opt,i in @form_field.options
+      if opt.value is val
+        if opt.selected 
+          return @results_hide()
+        else
+          break
+
+    for result in @results_data
+      if result.value is val
+        result.selected = true
+        break
+
+    if i == @form_field.length
+      @form_field.options[i] = new Option(txt, val)
+    @form_field.options[i].selected = true
+
+    item = {
+      array_index: i,
+      options_index: i,
+      value: val,
+      text: txt,
+      html: txt,
+      selected: 1,
+      disabled: 0,
+      group_array_index: null
+    };
+    @choice_build(item);
+
+    this.results_hide();
+    this.search_field.val("");
+    this.form_field_jq.trigger("change");
+    return this.search_field_scale();
+
   choice_build: (item) ->
     choice_id = @container_id + "_c_" + item.array_index
     @choices += 1
@@ -332,16 +415,20 @@ class Chosen extends AbstractChosen
       high.addClass "result-selected"
       
       position = high_id.substr(high_id.lastIndexOf("_") + 1 )
+
       item = @results_data[position]
       item.selected = true
 
-      @form_field.options[item.options_index].selected = true
-
-      if @is_multiple
-        this.choice_build item
+      if @is_tag
+        this.choice_append(item.text, item.value)
       else
-        @selected_item.find("span").first().text item.text
-        @selected_item.find("span").first().after "<abbr class=\"search-choice-close\"></abbr>" if @allow_single_deselect
+        @form_field.options[item.options_index].selected = true
+
+        if @is_multiple
+          this.choice_build item
+        else
+          @selected_item.find("span").first().text item.text
+          @selected_item.find("span").first().after "<abbr class=\"search-choice-close\"></abbr>" if @allow_single_deselect
 
       this.results_hide() unless evt.metaKey and @is_multiple
 
@@ -357,10 +444,14 @@ class Chosen extends AbstractChosen
     el.removeClass("active-result")
 
   result_deselect: (pos) ->
-    result_data = @results_data[pos]
-    result_data.selected = false
+    if @is_tag
+      @form_field.options[pos].selected = false
+    else
+      result_data = @results_data[pos]
+      result_data.selected = false
 
-    @form_field.options[result_data.options_index].selected = false
+      @form_field.options[result_data.options_index].selected = false
+
     result = $("#" + @container_id + "_o_" + pos)
     result.removeClass("result-selected").addClass("active-result").show()
 
@@ -442,6 +533,7 @@ class Chosen extends AbstractChosen
       this.result_do_highlight do_high if do_high?
   
   no_results: (terms) ->
+    return this.results_hide() if @is_tag
     no_results_html = $('<li class="no-results">' + @results_none_found + ' "<span></span>"</li>')
     no_results_html.find("span").first().html(terms)
 

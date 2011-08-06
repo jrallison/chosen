@@ -95,7 +95,7 @@
       this.options = options != null ? options : {};
       this.set_default_values();
       this.is_multiple = this.form_field.multiple;
-      this.default_text_default = this.is_multiple ? "Select Some Options" : "Select an Option";
+      this.default_text_default = this.form_field.multiple ? "Select Some Options" : "Select an Option";
       this.setup();
       this.set_up_html();
       this.register_observers();
@@ -195,6 +195,8 @@
           evt.preventDefault();
           if (this.results_showing) {
             return this.result_select(evt);
+          } else if (this.is_tag) {
+            return this.choice_append();
           }
           break;
         case 27:

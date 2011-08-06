@@ -10,7 +10,7 @@ class AbstractChosen
     this.set_default_values()
     
     @is_multiple = @form_field.multiple
-    @default_text_default = if @is_multiple then "Select Some Options" else "Select an Option"
+    @default_text_default = if @form_field.multiple then "Select Some Options" else "Select an Option"
 
     this.setup()
 
@@ -88,7 +88,10 @@ class AbstractChosen
           this.results_search()
       when 13
         evt.preventDefault()
-        this.result_select(evt) if this.results_showing
+        if this.results_showing
+          this.result_select(evt)
+        else if @is_tag
+          this.choice_append()
       when 27
         this.results_hide() if @results_showing
       when 9, 38, 40, 16, 91, 17
